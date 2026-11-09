@@ -1158,7 +1158,7 @@
         1520
       ],
       "parameters": {
-        "jsCode": "\nconst BLOCKED_DOMAINS = ['zensar.com', 'vodafone.com', 'vodafone.com.qa', 'ooredoo.qa', 'emotorad.com'];\nconst EMAIL_RE = /^[^\\s@,;<>]+@[^\\s@,;<>]+\\.[^\\s@,;<>]+$/;\nfunction cleanEmail(v) { return String(v || '').trim().toLowerCase(); }\nfunction emailProblem(e) {\n  if (!EMAIL_RE.test(e)) return 'invalid email';\n  const dom = e.split('@')[1];\n  if (BLOCKED_DOMAINS.some((d) => dom === d || dom.endsWith('.' + d))) return 'blocked domain';\n  return '';\n}\nfunction greeting(l) {\n  let n = String(l.first_name || '').trim();\n  if (n && /^[A-Za-z][A-Za-z.'\\- ]{0,30}$/.test(n) && !/^(firstname|name|n\\/a|na|hr|team)$/i.test(n)) {\n    n = n.split(/\\s+/)[0];\n    n = n.charAt(0).toUpperCase() + n.slice(1);\n    return 'Hi ' + n + ',';\n  }\n  const seg = String(l.segment || '').toLowerCase();\n  return (seg === 'recruiter' || seg === 'hiring_manager') ? 'Hello Hiring Team,' : 'Hello,';\n}\nfunction words(s) { return String(s || '').trim().split(/\\s+/).filter(Boolean).length; }\nfunction extractJson(t) {\n  t = String(t || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const a = t.indexOf('{'), b = t.lastIndexOf('}');\n  if (a < 0 || b <= a) return null;\n  try { return JSON.parse(t.slice(a, b + 1)); } catch (e) { return null; }\n}\nfunction tidy(s) { return String(s || '').replace(/\u2014/g, ',').replace(/\u2013/g, '-').replace(/\\r/g, '').trim(); }\n\nconst CAP = 10;\nconst out = [];\nlet ok = 0;\n$input.all().forEach((it) => {\n  const l = it.json;\n  let reason = '';\n  if (!String(l.fu_body || '').trim()) reason = 'empty fu_body';\n  else if (!String(l.message_id || '').trim()) reason = 'no message_id to reply to';\n  else if (String(l.followup_sent_at || '').trim()) reason = 'already has followup_sent_at';\n  if (reason) { out.push({ json: { row_number: l.row_number, ok: false, reason } }); return; }\n  if (ok >= CAP) return;\n  ok++;\n  out.push({ json: { row_number: l.row_number, ok: true, message_id: String(l.message_id).trim(), fu_body: String(l.fu_body).trim() } });\n});\nreturn out;\n"
+        "jsCode": "\nconst BLOCKED_DOMAINS = ['zensar.com', 'vodafone.com', 'vodafone.com.qa', 'ooredoo.qa', 'emotorad.com'];\nconst EMAIL_RE = /^[^\\s@,;<>]+@[^\\s@,;<>]+\\.[^\\s@,;<>]+$/;\nfunction cleanEmail(v) { return String(v || '').trim().toLowerCase(); }\nfunction emailProblem(e) {\n  if (!EMAIL_RE.test(e)) return 'invalid email';\n  const dom = e.split('@')[1];\n  if (BLOCKED_DOMAINS.some((d) => dom === d || dom.endsWith('.' + d))) return 'blocked domain';\n  return '';\n}\nfunction greeting(l) {\n  let n = String(l.first_name || '').trim();\n  if (n && /^[A-Za-z][A-Za-z.'\\- ]{0,30}$/.test(n) && !/^(firstname|name|n\\/a|na|hr|team)$/i.test(n)) {\n    n = n.split(/\\s+/)[0];\n    n = n.charAt(0).toUpperCase() + n.slice(1);\n    return 'Hi ' + n + ',';\n  }\n  const seg = String(l.segment || '').toLowerCase();\n  return (seg === 'recruiter' || seg === 'hiring_manager') ? 'Hello Hiring Team,' : 'Hello,';\n}\nfunction words(s) { return String(s || '').trim().split(/\\s+/).filter(Boolean).length; }\nfunction extractJson(t) {\n  t = String(t || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const a = t.indexOf('{'), b = t.lastIndexOf('}');\n  if (a < 0 || b <= a) return null;\n  try { return JSON.parse(t.slice(a, b + 1)); } catch (e) { return null; }\n}\nfunction tidy(s) { return String(s || '').replace(/\u2014/g, ',').replace(/\u2013/g, '-').replace(/\\r/g, '').trim(); }\n\nconst CAP = 10;\nconst out = [];\nlet ok = 0;\n$input.all().forEach((it) => {\n  const l = it.json;\n  let reason = '';\n  if (!String(l.fu_body || '').trim()) reason = 'empty fu_body';\n  else if (!String(l.message_id || '').trim()) reason = 'no message_id to reply to';\n  else if (!String(l.thread_id || '').trim()) reason = 'no thread_id to reply to';\n  else if (String(l.followup_sent_at || '').trim()) reason = 'already has followup_sent_at';\n  if (reason) { out.push({ json: { row_number: l.row_number, ok: false, reason } }); return; }\n  if (ok >= CAP) return;\n  ok++;\n  out.push({ json: { row_number: l.row_number, ok: true, message_id: String(l.message_id).trim(), thread_id: String(l.thread_id).trim(), fu_body: String(l.fu_body).trim() } });\n});\nreturn out;\n"
       }
     },
     {
@@ -1219,13 +1219,15 @@
         1480
       ],
       "parameters": {
-        "resource": "message",
+        "resource": "thread",
         "operation": "reply",
+        "threadId": "={{ $json.thread_id }}",
         "messageId": "={{ $json.message_id }}",
         "emailType": "text",
         "message": "={{ $json.fu_body }}",
         "options": {
-          "appendAttribution": false
+          "appendAttribution": false,
+          "replyToRecipientsOnly": true
         }
       },
       "credentials": {
