@@ -1,0 +1,11 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+# The workflow lives in Postgres, not the image, so editing the JSON needs no redeploy.
+watchPatterns = ["Dockerfile", "railway.toml"]
+
+[deploy]
+healthcheckPath = "/healthz"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
