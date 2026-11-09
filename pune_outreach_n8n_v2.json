@@ -1,0 +1,2097 @@
+{
+  "name": "Pune outreach v2 (draft, approve, send, follow up)",
+  "nodes": [
+    {
+      "id": "ff33d444-0873-5440-84f6-839f90f5805e",
+      "name": "Note START HERE",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -200,
+        -300
+      ],
+      "parameters": {
+        "content": "## Pune outreach v2: START HERE\n1. Replace `YOUR_GOOGLE_SHEET_ID` in every Google Sheets node (or open one node, pick your sheet, then copy to the rest).\n2. Attach credentials: Google Sheets, Gmail, and a Header Auth credential (name `x-api-key`, value = your Anthropic API key) on the two Claude nodes.\n3. Run each flow once with its **Manual run** trigger using a test row before activating.\n4. Activate the workflow. Full guide: README_run_outreach.md\n\nDaily caps live in the 'Guard' code nodes (CAP). Start at 10.",
+        "width": 520,
+        "height": 240,
+        "color": 6
+      }
+    },
+    {
+      "id": "245df7ee-6cc2-58b9-84ba-c581fc1967e2",
+      "name": "Note FLOW A",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -200,
+        -60
+      ],
+      "parameters": {
+        "content": "## FLOW A: DRAFT\nWeekdays 09:00 IST. Takes the first 10 rows with status `new`, validates the email, asks Claude for a draft, saves it as `pending_approval`, and emails you.",
+        "width": 520,
+        "height": 150,
+        "color": 4
+      }
+    },
+    {
+      "id": "5c44a2ec-5e89-537c-a27c-b56a11442eda",
+      "name": "A1 Schedule (weekdays 9:00)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        120
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1-5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "6ec2add3-d83c-5e42-b58e-be5fec83b6e7",
+      "name": "A1 Manual run",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        280
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "c6eb26ae-0ba5-5656-aec4-6a5c0b3d77e1",
+      "name": "A2 Get new leads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        240,
+        120
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "options": {},
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "status",
+              "lookupValue": "new"
+            }
+          ]
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "id": "886d5f6f-aecf-503f-bd7b-eb7ad9b293e7",
+      "name": "A3 Build prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        120
+      ],
+      "parameters": {
+        "jsCode": "\nconst BLOCKED_DOMAINS = ['zensar.com', 'vodafone.com', 'vodafone.com.qa', 'ooredoo.qa', 'emotorad.com'];\nconst EMAIL_RE = /^[^\\s@,;<>]+@[^\\s@,;<>]+\\.[^\\s@,;<>]+$/;\nfunction cleanEmail(v) { return String(v || '').trim().toLowerCase(); }\nfunction emailProblem(e) {\n  if (!EMAIL_RE.test(e)) return 'invalid email';\n  const dom = e.split('@')[1];\n  if (BLOCKED_DOMAINS.some((d) => dom === d || dom.endsWith('.' + d))) return 'blocked domain';\n  return '';\n}\nfunction greeting(l) {\n  let n = String(l.first_name || '').trim();\n  if (n && /^[A-Za-z][A-Za-z.'\\- ]{0,30}$/.test(n) && !/^(firstname|name|n\\/a|na|hr|team)$/i.test(n)) {\n    n = n.split(/\\s+/)[0];\n    n = n.charAt(0).toUpperCase() + n.slice(1);\n    return 'Hi ' + n + ',';\n  }\n  const seg = String(l.segment || '').toLowerCase();\n  return (seg === 'recruiter' || seg === 'hiring_manager') ? 'Hello Hiring Team,' : 'Hello,';\n}\nfunction words(s) { return String(s || '').trim().split(/\\s+/).filter(Boolean).length; }\nfunction extractJson(t) {\n  t = String(t || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const a = t.indexOf('{'), b = t.lastIndexOf('}');\n  if (a < 0 || b <= a) return null;\n  try { return JSON.parse(t.slice(a, b + 1)); } catch (e) { return null; }\n}\nfunction tidy(s) { return String(s || '').replace(/\u2014/g, ',').replace(/\u2013/g, '-').replace(/\\r/g, '').trim(); }\nconst SYSTEM = \"You write short, professional outreach emails on behalf of Pranav Dixit, a Pune-based technical product and program professional who is exploring new roles.\\n\\nPositioning: Pranav is a technical product and program professional (product, program, project and digital transformation delivery across ERP/SaaS, EV mobility and logistics). AI tools and Python are supporting skills that make him faster. Never describe him as an AI engineer, ML engineer, data scientist or developer.\\n\\nFacts you may use (never invent others):\\n- 7+ years across EV mobility (Battery Smart, EMotorad), logistics (Edgistify, Rivigo) and ERP/SaaS (ERPNext, Zoho).\\n- Led an AI-assisted after-sales automation system (voice agents, LLM chatbots, ticketing) that cut manual ops effort by about 70%.\\n- At Battery Smart: cut query resolution from 48 hrs to under 12 hrs; shipped Driver and Partner apps for 10,000+ drivers and 300+ partners across 30+ cities; a maintenance system for 70,000+ batteries cut unplanned downtime by about 30%.\\n- At Edgistify: scaled a warehouse onboarding platform to 5,000+ leads a day and cut manual effort by about 50%.\\n- Ran a multi-geography ERPNext rollout (India and Europe), built an Order Management System from scratch (Amazon, Flipkart, shipment aggregators) and launched an IoT connected-bike app.\\n- Built billing automation that took invoicing from 4 days to under 1 hour, saving 60+ man-hours a month.\\n- Tools: Agile/Scrum, Jira, Asana, Linear, N8N, AI agents.\\n- Looking for Product Manager, Program Manager, Project Manager or Digital Transformation roles in Pune or remote. Can join after a 1-month notice period.\\n- Do NOT name his current employer or any client.\\n\\nRules:\\n- Body is 90-120 words, plain text, no links, no bullet points, no emojis.\\n- Start with exactly the greeting given in the lead block. End with this sign-off: \\\"Best,\\\\nPranav Dixit\\\\nlinkedin.com/in/pranav-dixit-9478b7151\\\".\\n- Pick only the 1-2 proof points most relevant to the lead's segment and context. Lead with the business outcome, not the job title.\\n- segment=recruiter: say what roles he targets and ask whether any current mandates fit. segment=hiring_manager: connect his results to what that team likely needs. segment=founder or cto: focus on how he can help them grow (ops, product delivery, automation) and suggest a 15-minute call.\\n- pitch_angle decides which side of his profile to lead with. product: lead with product ownership proof (apps shipped and adoption, requirements and roadmap work, building the OMS or the connected-bike app). program: lead with delivery proof (multi-geography rollout, cross-team coordination, SLAs and timelines, rollout at scale). both: one product proof point and one program proof point. Match the proof to the company's business as described in the context (for example EV or mobility maps to Battery Smart and EMotorad, logistics or e-commerce to the OMS and Edgistify, ERP or SaaS to the ERPNext rollout, process-heavy operations to the billing automation). Never claim domain experience the facts do not support.\\n- One soft ask only. Say he is happy to share his resume. Add a final line before the sign-off: \\\"If this isn't relevant, just say so and I won't follow up.\\\"\\n- The context field is background for you. Reference the company or a specific role only if the context says so. If the context says no matching role is listed, write an open-application email and do not claim a role exists. Never repeat caveats from the context such as \\\"verify\\\" or \\\"may be stale\\\", and never quote the experience range an advert asks for. If context is empty, stay generic to the segment. Never invent facts about the lead.\\n- Tone: warm, direct, specific. No \\\"I hope this finds you well\\\", no hype, no flattery.\\n- Subject: max 7 words, specific, not clickbait.\\nReturn ONLY valid JSON: {\\\"subject\\\": \\\"...\\\", \\\"body\\\": \\\"...\\\"}\";\nconst MODEL = \"claude-sonnet-5-5\";\n\nconst MAX_PER_RUN = 10;   // drafts per run. Rows beyond this stay 'new' for tomorrow.\nreturn $input.all().slice(0, MAX_PER_RUN).map((it, idx) => {\n  const l = it.json;\n  const email = cleanEmail(l.email);\n  const problem = emailProblem(email);\n  if (problem) return { json: { row_number: l.row_number, email, valid: false, reason: problem }, pairedItem: { item: idx } };\n  const g = greeting(l);\n  const user = `Lead:\n- greeting: ${g}\n- title: ${l.title || ''}\n- company: ${l.company || ''}\n- segment: ${l.segment || ''}\n- pitch_angle: ${['product','program','both'].includes(String(l.pitch_angle||'').trim().toLowerCase()) ? String(l.pitch_angle).trim().toLowerCase() : 'both'}\n- context: ${l.context || '(none)'}\n\nWrite the email.`;\n  return { json: { row_number: l.row_number, email, valid: true, greeting: g,\n    payload: { model: MODEL, max_tokens: 700, system: SYSTEM, messages: [{ role: 'user', content: user }] } },\n    pairedItem: { item: idx } };\n});\n"
+      }
+    },
+    {
+      "id": "dbbc8cac-12d6-5594-b30e-ce40d88069d0",
+      "name": "A3b Valid email?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        700,
+        120
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "abc82a3f-a2f5-507e-939e-1eb19550b95d",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "a45c9443-3b34-5f45-b0f7-491542800531",
+      "name": "A4 Claude: write email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        940,
+        40
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1500
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Anthropic API key (header x-api-key)"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "1e4f85cd-ebbe-58b8-b118-e3197e3f77f7",
+      "name": "A5 Parse and validate draft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1180,
+        40
+      ],
+      "parameters": {
+        "jsCode": "\nconst BLOCKED_DOMAINS = ['zensar.com', 'vodafone.com', 'vodafone.com.qa', 'ooredoo.qa', 'emotorad.com'];\nconst EMAIL_RE = /^[^\\s@,;<>]+@[^\\s@,;<>]+\\.[^\\s@,;<>]+$/;\nfunction cleanEmail(v) { return String(v || '').trim().toLowerCase(); }\nfunction emailProblem(e) {\n  if (!EMAIL_RE.test(e)) return 'invalid email';\n  const dom = e.split('@')[1];\n  if (BLOCKED_DOMAINS.some((d) => dom === d || dom.endsWith('.' + d))) return 'blocked domain';\n  return '';\n}\nfunction greeting(l) {\n  let n = String(l.first_name || '').trim();\n  if (n && /^[A-Za-z][A-Za-z.'\\- ]{0,30}$/.test(n) && !/^(firstname|name|n\\/a|na|hr|team)$/i.test(n)) {\n    n = n.split(/\\s+/)[0];\n    n = n.charAt(0).toUpperCase() + n.slice(1);\n    return 'Hi ' + n + ',';\n  }\n  const seg = String(l.segment || '').toLowerCase();\n  return (seg === 'recruiter' || seg === 'hiring_manager') ? 'Hello Hiring Team,' : 'Hello,';\n}\nfunction words(s) { return String(s || '').trim().split(/\\s+/).filter(Boolean).length; }\nfunction extractJson(t) {\n  t = String(t || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const a = t.indexOf('{'), b = t.lastIndexOf('}');\n  if (a < 0 || b <= a) return null;\n  try { return JSON.parse(t.slice(a, b + 1)); } catch (e) { return null; }\n}\nfunction tidy(s) { return String(s || '').replace(/\u2014/g, ',').replace(/\u2013/g, '-').replace(/\\r/g, '').trim(); }\n\nconst src = $('A3 Build prompt').all().filter((i) => i.json.valid);\nreturn $input.all().map((it, idx) => {\n  const s = src[idx].json;\n  const raw = it.json.content && it.json.content[0] && it.json.content[0].text;\n  const fail = (why) => ({ json: { row_number: s.row_number, subject: 'ERR: ' + why, body: '', status: 'draft_error' } });\n  if (!raw) return fail('no response from Claude');\n  const d = extractJson(raw);\n  if (!d || typeof d.subject !== 'string' || typeof d.body !== 'string') return fail('could not parse JSON');\n  const subject = tidy(d.subject).replace(/^\"|\"$/g, '');\n  const body = tidy(d.body);\n  const n = words(body);\n  if (subject.length < 3 || subject.length > 80) return fail('subject length');\n  if (!body.startsWith(s.greeting)) return fail('wrong greeting');\n  if (n < 70 || n > 150) return fail('word count ' + n);\n  if (!/won['\u2019]t follow up/i.test(body)) return fail('missing opt-out line');\n  if (/zensar|vodafone|ai engineer|\\[|\\{|\\}/i.test(subject + ' ' + body)) return fail('banned text');\n  return { json: { row_number: s.row_number, subject, body, status: 'pending_approval' } };\n});\n"
+      }
+    },
+    {
+      "id": "5b37a9c0-0417-5963-b973-8c9eaafbffaf",
+      "name": "A6 Save drafts",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1420,
+        40
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $json.row_number }}",
+            "subject": "={{ $json.subject }}",
+            "body": "={{ $json.body }}",
+            "status": "={{ $json.status }}"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "subject",
+              "displayName": "subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "body",
+              "displayName": "body",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "id": "3bda7c54-a880-566b-a416-28b442bce42f",
+      "name": "A7 Notify me",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1660,
+        40
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "pranavdixit0000@gmail.com",
+        "subject": "Outreach drafts ready for approval",
+        "emailType": "text",
+        "message": "={{ $('A5 Parse and validate draft').all().filter(i => i.json.status === 'pending_approval').length }} drafts are ready in your Leads sheet ({{ $('A5 Parse and validate draft').all().filter(i => i.json.status === 'draft_error').length }} failed validation: see rows marked draft_error). Edit anything, then set status to \"approved\" on the ones to send. Sending starts at 10:30 IST.",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "Gmail account"
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "c19e5d0d-8583-5c47-9768-ae1681378a86",
+      "name": "A3c Mark needs_fix",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        940,
+        240
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $json.row_number }}",
+            "status": "needs_fix"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "id": "7eae2c0a-bcb6-5e04-9ae6-7a457137f6a7",
+      "name": "Note FLOW B",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -200,
+        420
+      ],
+      "parameters": {
+        "content": "## FLOW B: SEND APPROVED\nWeekdays 10:30 IST. Sends rows with status `approved`, up to CAP per day, one every 2.5 to 5.5 minutes, then marks them `sent`. Rows that fail a safety check or fail to send become `needs_fix`.",
+        "width": 520,
+        "height": 150,
+        "color": 4
+      }
+    },
+    {
+      "id": "f24401d9-8514-576e-be4b-48f9fd5ed7bd",
+      "name": "B1 Schedule (weekdays 10:30)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        600
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 10 * * 1-5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "92475d54-e893-5f9c-b5a0-86bfa1a2f253",
+      "name": "B1 Manual run",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        760
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "e23c04e3-dec4-50b5-86d0-08c004372f7f",
+      "name": "B2 Get approved",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        240,
+        600
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "options": {},
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "status",
+              "lookupValue": "approved"
+            }
+          ]
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "id": "137792dc-02cd-5bdc-b91f-b1b7510d492a",
+      "name": "B2b Guard (CAP per day)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        600
+      ],
+      "parameters": {
+        "jsCode": "\nconst BLOCKED_DOMAINS = ['zensar.com', 'vodafone.com', 'vodafone.com.qa', 'ooredoo.qa', 'emotorad.com'];\nconst EMAIL_RE = /^[^\\s@,;<>]+@[^\\s@,;<>]+\\.[^\\s@,;<>]+$/;\nfunction cleanEmail(v) { return String(v || '').trim().toLowerCase(); }\nfunction emailProblem(e) {\n  if (!EMAIL_RE.test(e)) return 'invalid email';\n  const dom = e.split('@')[1];\n  if (BLOCKED_DOMAINS.some((d) => dom === d || dom.endsWith('.' + d))) return 'blocked domain';\n  return '';\n}\nfunction greeting(l) {\n  let n = String(l.first_name || '').trim();\n  if (n && /^[A-Za-z][A-Za-z.'\\- ]{0,30}$/.test(n) && !/^(firstname|name|n\\/a|na|hr|team)$/i.test(n)) {\n    n = n.split(/\\s+/)[0];\n    n = n.charAt(0).toUpperCase() + n.slice(1);\n    return 'Hi ' + n + ',';\n  }\n  const seg = String(l.segment || '').toLowerCase();\n  return (seg === 'recruiter' || seg === 'hiring_manager') ? 'Hello Hiring Team,' : 'Hello,';\n}\nfunction words(s) { return String(s || '').trim().split(/\\s+/).filter(Boolean).length; }\nfunction extractJson(t) {\n  t = String(t || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const a = t.indexOf('{'), b = t.lastIndexOf('}');\n  if (a < 0 || b <= a) return null;\n  try { return JSON.parse(t.slice(a, b + 1)); } catch (e) { return null; }\n}\nfunction tidy(s) { return String(s || '').replace(/\u2014/g, ',').replace(/\u2013/g, '-').replace(/\\r/g, '').trim(); }\n\nconst CAP = 10;   // emails per run. Week 1: 10. Week 2: 15. Later: up to 25.\nconst out = [];\nlet ok = 0;\n$input.all().forEach((it) => {\n  const l = it.json;\n  const email = cleanEmail(l.email);\n  let reason = emailProblem(email);\n  if (!reason && (!String(l.subject || '').trim() || !String(l.body || '').trim())) reason = 'empty subject or body';\n  if (!reason && String(l.sent_at || '').trim()) reason = 'already has sent_at';\n  if (reason) { out.push({ json: { row_number: l.row_number, ok: false, reason } }); return; }\n  if (ok >= CAP) return;\n  ok++;\n  out.push({ json: { row_number: l.row_number, ok: true, email, subject: String(l.subject).trim(), body: String(l.body).trim() } });\n});\nreturn out;\n"
+      }
+    },
+    {
+      "id": "9b39ae0d-e7a5-5744-bbe4-3d3970b92d86",
+      "name": "B2c OK to send?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        700,
+        600
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2b6f460a-8cca-5639-9e9e-bda6e0a64008",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "6e7130b0-7ba4-57b8-b497-42904e053156",
+      "name": "B3 Loop send",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        940,
+        560
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "id": "5cfed004-be02-5eee-9f9b-fef150c11c87",
+      "name": "B4 Gmail send",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1180,
+        560
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ $json.email }}",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {
+          "appendAttribution": false,
+          "senderName": "Pranav Dixit"
+        }
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "Gmail account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "026bf800-146c-57cd-8755-eccb0d0958e0",
+      "name": "B5 Mark sent",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1420,
+        520
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $('B3 Loop send').item.json.row_number }}",
+            "status": "sent",
+            "sent_at": "={{ $now.toISO() }}",
+            "message_id": "={{ $json.id }}",
+            "thread_id": "={{ $json.threadId }}"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "sent_at",
+              "displayName": "sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "message_id",
+              "displayName": "message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "thread_id",
+              "displayName": "thread_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "id": "2b7a550a-970c-5c7f-8be5-02791e73787a",
+      "name": "B5b Mark send failed",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1420,
+        680
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $('B3 Loop send').item.json.row_number }}",
+            "status": "needs_fix"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "id": "455c9236-2567-5761-8622-42d9d1fc8b43",
+      "name": "B6 Random gap",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1660,
+        600
+      ],
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ Math.floor(Math.random() * 180) + 150 }}",
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "9400b7ad-5b08-5145-84f9-f68b1e152b62",
+      "name": "B2d Mark needs_fix",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        940,
+        760
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $json.row_number }}",
+            "status": "needs_fix"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "id": "a18f078d-2ddc-5275-9156-61e18e8eaa88",
+      "name": "Note FLOW C",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -200,
+        900
+      ],
+      "parameters": {
+        "content": "## FLOW C: FOLLOW-UP DRAFTS\nWeekdays 09:15 IST. For rows with status `sent` for 5+ days and no reply, Claude drafts a short follow-up (max 10 per run). You approve with `fu_approved`.",
+        "width": 520,
+        "height": 150,
+        "color": 4
+      }
+    },
+    {
+      "id": "0630a4d8-4c76-57c8-b888-b8d4877af929",
+      "name": "C1 Schedule (weekdays 9:15)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        1080
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "15 9 * * 1-5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "37a05e67-26eb-5427-aa0a-3d2019f5293d",
+      "name": "C1 Manual run",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        1240
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "68517c9f-fe06-5936-b09c-03750b467d39",
+      "name": "C2 Get sent",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        240,
+        1080
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "options": {},
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "status",
+              "lookupValue": "sent"
+            }
+          ]
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "id": "05c17574-f708-50ad-90f6-ef895563a09b",
+      "name": "C3 Build follow-up prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        1080
+      ],
+      "parameters": {
+        "jsCode": "\nconst BLOCKED_DOMAINS = ['zensar.com', 'vodafone.com', 'vodafone.com.qa', 'ooredoo.qa', 'emotorad.com'];\nconst EMAIL_RE = /^[^\\s@,;<>]+@[^\\s@,;<>]+\\.[^\\s@,;<>]+$/;\nfunction cleanEmail(v) { return String(v || '').trim().toLowerCase(); }\nfunction emailProblem(e) {\n  if (!EMAIL_RE.test(e)) return 'invalid email';\n  const dom = e.split('@')[1];\n  if (BLOCKED_DOMAINS.some((d) => dom === d || dom.endsWith('.' + d))) return 'blocked domain';\n  return '';\n}\nfunction greeting(l) {\n  let n = String(l.first_name || '').trim();\n  if (n && /^[A-Za-z][A-Za-z.'\\- ]{0,30}$/.test(n) && !/^(firstname|name|n\\/a|na|hr|team)$/i.test(n)) {\n    n = n.split(/\\s+/)[0];\n    n = n.charAt(0).toUpperCase() + n.slice(1);\n    return 'Hi ' + n + ',';\n  }\n  const seg = String(l.segment || '').toLowerCase();\n  return (seg === 'recruiter' || seg === 'hiring_manager') ? 'Hello Hiring Team,' : 'Hello,';\n}\nfunction words(s) { return String(s || '').trim().split(/\\s+/).filter(Boolean).length; }\nfunction extractJson(t) {\n  t = String(t || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const a = t.indexOf('{'), b = t.lastIndexOf('}');\n  if (a < 0 || b <= a) return null;\n  try { return JSON.parse(t.slice(a, b + 1)); } catch (e) { return null; }\n}\nfunction tidy(s) { return String(s || '').replace(/\u2014/g, ',').replace(/\u2013/g, '-').replace(/\\r/g, '').trim(); }\nconst SYSTEM = \"You write a brief, polite follow-up email for Pranav Dixit, a Pune-based technical product and program professional exploring roles.\\n\\nPositioning: Pranav is a technical product and program professional (product, program, project and digital transformation delivery across ERP/SaaS, EV mobility and logistics). AI tools and Python are supporting skills that make him faster. Never describe him as an AI engineer, ML engineer, data scientist or developer.\\n\\nFacts you may use (never invent others):\\n- 7+ years across EV mobility (Battery Smart, EMotorad), logistics (Edgistify, Rivigo) and ERP/SaaS (ERPNext, Zoho).\\n- Led an AI-assisted after-sales automation system (voice agents, LLM chatbots, ticketing) that cut manual ops effort by about 70%.\\n- At Battery Smart: cut query resolution from 48 hrs to under 12 hrs; shipped Driver and Partner apps for 10,000+ drivers and 300+ partners across 30+ cities; a maintenance system for 70,000+ batteries cut unplanned downtime by about 30%.\\n- At Edgistify: scaled a warehouse onboarding platform to 5,000+ leads a day and cut manual effort by about 50%.\\n- Ran a multi-geography ERPNext rollout (India and Europe), built an Order Management System from scratch (Amazon, Flipkart, shipment aggregators) and launched an IoT connected-bike app.\\n- Built billing automation that took invoicing from 4 days to under 1 hour, saving 60+ man-hours a month.\\n- Tools: Agile/Scrum, Jira, Asana, Linear, N8N, AI agents.\\n- Looking for Product Manager, Program Manager, Project Manager or Digital Transformation roles in Pune or remote. Can join after a 1-month notice period.\\n- Do NOT name his current employer or any client.\\n\\nRules:\\n- 40-60 words, plain text, no links. Start with exactly the greeting given in the lead block. Sign off \\\"Best,\\\\nPranav Dixit\\\".\\n- Reference the earlier email in one clause, add ONE proof point that the first email did not use, and make it easy to say no or to pass him to the right person.\\n- No guilt, no \\\"just bumping this\\\".\\nReturn ONLY valid JSON: {\\\"body\\\": \\\"...\\\"}\";\nconst MODEL = \"claude-sonnet-5-5\";\n\nconst MIN_DAYS = 5, MAX_PER_RUN = 10;\nconst out = [];\n$input.all().forEach((it) => {\n  const l = it.json;\n  if (out.length >= MAX_PER_RUN) return;\n  if (emailProblem(cleanEmail(l.email)) || l.fu_body || !l.sent_at || !l.message_id) return;\n  const t = new Date(l.sent_at).getTime();\n  if (isNaN(t) || Date.now() - t < MIN_DAYS * 24 * 3600 * 1000) return;\n  const g = greeting(l);\n  const user = `Lead:\n- greeting: ${g}\n- title: ${l.title || ''}\n- company: ${l.company || ''}\n- segment: ${l.segment || ''}\nOriginal subject: ${l.subject}\nOriginal email:\n${l.body}\n\nWrite the follow-up.`;\n  out.push({ json: { row_number: l.row_number, greeting: g,\n    payload: { model: MODEL, max_tokens: 400, system: SYSTEM, messages: [{ role: 'user', content: user }] } } });\n});\nreturn out;\n"
+      }
+    },
+    {
+      "id": "c5712916-8968-53b1-830c-fb5d799a6ff3",
+      "name": "C4 Claude: write follow-up",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        1080
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 1500
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Anthropic API key (header x-api-key)"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "e9ea0fb3-08b3-50e8-8474-796e47db0265",
+      "name": "C5 Parse and validate follow-up",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        1080
+      ],
+      "parameters": {
+        "jsCode": "\nconst BLOCKED_DOMAINS = ['zensar.com', 'vodafone.com', 'vodafone.com.qa', 'ooredoo.qa', 'emotorad.com'];\nconst EMAIL_RE = /^[^\\s@,;<>]+@[^\\s@,;<>]+\\.[^\\s@,;<>]+$/;\nfunction cleanEmail(v) { return String(v || '').trim().toLowerCase(); }\nfunction emailProblem(e) {\n  if (!EMAIL_RE.test(e)) return 'invalid email';\n  const dom = e.split('@')[1];\n  if (BLOCKED_DOMAINS.some((d) => dom === d || dom.endsWith('.' + d))) return 'blocked domain';\n  return '';\n}\nfunction greeting(l) {\n  let n = String(l.first_name || '').trim();\n  if (n && /^[A-Za-z][A-Za-z.'\\- ]{0,30}$/.test(n) && !/^(firstname|name|n\\/a|na|hr|team)$/i.test(n)) {\n    n = n.split(/\\s+/)[0];\n    n = n.charAt(0).toUpperCase() + n.slice(1);\n    return 'Hi ' + n + ',';\n  }\n  const seg = String(l.segment || '').toLowerCase();\n  return (seg === 'recruiter' || seg === 'hiring_manager') ? 'Hello Hiring Team,' : 'Hello,';\n}\nfunction words(s) { return String(s || '').trim().split(/\\s+/).filter(Boolean).length; }\nfunction extractJson(t) {\n  t = String(t || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const a = t.indexOf('{'), b = t.lastIndexOf('}');\n  if (a < 0 || b <= a) return null;\n  try { return JSON.parse(t.slice(a, b + 1)); } catch (e) { return null; }\n}\nfunction tidy(s) { return String(s || '').replace(/\u2014/g, ',').replace(/\u2013/g, '-').replace(/\\r/g, '').trim(); }\n\nconst src = $('C3 Build follow-up prompt').all();\nreturn $input.all().map((it, idx) => {\n  const s = src[idx].json;\n  const raw = it.json.content && it.json.content[0] && it.json.content[0].text;\n  const d = extractJson(raw);\n  const body = d && typeof d.body === 'string' ? tidy(d.body) : '';\n  const n = words(body);\n  const bad = !body || !body.startsWith(s.greeting) || n < 25 || n > 90 || /zensar|vodafone|ai engineer|\\[|\\{|\\}/i.test(body);\n  // On failure leave the row as 'sent' (fu_body stays empty) so it is retried tomorrow.\n  return { json: { row_number: s.row_number, fu_body: bad ? '' : body, status: bad ? 'sent' : 'followup_pending_approval', ok: !bad } };\n});\n"
+      }
+    },
+    {
+      "id": "8880d7eb-067f-5e83-a586-fe567d23bd98",
+      "name": "C6 Save follow-ups",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1200,
+        1080
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $json.row_number }}",
+            "fu_body": "={{ $json.fu_body }}",
+            "status": "={{ $json.status }}"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "fu_body",
+              "displayName": "fu_body",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "id": "74d659e7-f0da-5ae2-8d80-910056b4253f",
+      "name": "C7 Notify me",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1440,
+        1080
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "pranavdixit0000@gmail.com",
+        "subject": "Follow-up drafts ready for approval",
+        "emailType": "text",
+        "message": "={{ $('C5 Parse and validate follow-up').all().filter(i => i.json.ok).length }} follow-up drafts are ready. Review the fu_body column and set status to \"fu_approved\" on the ones to send. They go out at 13:00 IST.",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "Gmail account"
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "32fe19fb-ab58-53a3-ad08-89103d9afc4a",
+      "name": "Note FLOW D",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -200,
+        1340
+      ],
+      "parameters": {
+        "content": "## FLOW D: SEND FOLLOW-UPS\nWeekdays 13:00 IST. Sends rows with status `fu_approved` as a reply in the same Gmail thread, up to CAP per day, then marks `followup_sent`.",
+        "width": 520,
+        "height": 150,
+        "color": 4
+      }
+    },
+    {
+      "id": "9d0b8907-0101-54e7-9d9c-f445262bf2a1",
+      "name": "D1 Schedule (weekdays 13:00)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        1520
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 13 * * 1-5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "72cd2154-b54e-5ab2-988d-0c996d17acff",
+      "name": "D1 Manual run",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        1680
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "da47049b-61b7-5b7a-8474-0e25ec6110f6",
+      "name": "D2 Get approved follow-ups",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        240,
+        1520
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "options": {},
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "status",
+              "lookupValue": "fu_approved"
+            }
+          ]
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "id": "7eb5ba1f-8c6e-5cc0-b494-48c54b4221c8",
+      "name": "D2b Guard (CAP per day)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        1520
+      ],
+      "parameters": {
+        "jsCode": "\nconst BLOCKED_DOMAINS = ['zensar.com', 'vodafone.com', 'vodafone.com.qa', 'ooredoo.qa', 'emotorad.com'];\nconst EMAIL_RE = /^[^\\s@,;<>]+@[^\\s@,;<>]+\\.[^\\s@,;<>]+$/;\nfunction cleanEmail(v) { return String(v || '').trim().toLowerCase(); }\nfunction emailProblem(e) {\n  if (!EMAIL_RE.test(e)) return 'invalid email';\n  const dom = e.split('@')[1];\n  if (BLOCKED_DOMAINS.some((d) => dom === d || dom.endsWith('.' + d))) return 'blocked domain';\n  return '';\n}\nfunction greeting(l) {\n  let n = String(l.first_name || '').trim();\n  if (n && /^[A-Za-z][A-Za-z.'\\- ]{0,30}$/.test(n) && !/^(firstname|name|n\\/a|na|hr|team)$/i.test(n)) {\n    n = n.split(/\\s+/)[0];\n    n = n.charAt(0).toUpperCase() + n.slice(1);\n    return 'Hi ' + n + ',';\n  }\n  const seg = String(l.segment || '').toLowerCase();\n  return (seg === 'recruiter' || seg === 'hiring_manager') ? 'Hello Hiring Team,' : 'Hello,';\n}\nfunction words(s) { return String(s || '').trim().split(/\\s+/).filter(Boolean).length; }\nfunction extractJson(t) {\n  t = String(t || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();\n  const a = t.indexOf('{'), b = t.lastIndexOf('}');\n  if (a < 0 || b <= a) return null;\n  try { return JSON.parse(t.slice(a, b + 1)); } catch (e) { return null; }\n}\nfunction tidy(s) { return String(s || '').replace(/\u2014/g, ',').replace(/\u2013/g, '-').replace(/\\r/g, '').trim(); }\n\nconst CAP = 10;\nconst out = [];\nlet ok = 0;\n$input.all().forEach((it) => {\n  const l = it.json;\n  let reason = '';\n  if (!String(l.fu_body || '').trim()) reason = 'empty fu_body';\n  else if (!String(l.message_id || '').trim()) reason = 'no message_id to reply to';\n  else if (String(l.followup_sent_at || '').trim()) reason = 'already has followup_sent_at';\n  if (reason) { out.push({ json: { row_number: l.row_number, ok: false, reason } }); return; }\n  if (ok >= CAP) return;\n  ok++;\n  out.push({ json: { row_number: l.row_number, ok: true, message_id: String(l.message_id).trim(), fu_body: String(l.fu_body).trim() } });\n});\nreturn out;\n"
+      }
+    },
+    {
+      "id": "41a484b7-e30b-578a-ba85-d2d55a8ca116",
+      "name": "D2c OK to send?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        700,
+        1520
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "fca1a5eb-3ea4-50fc-9c84-3db9dc45a53f",
+              "leftValue": "={{ $json.ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "850cbd46-023d-5512-80e6-b2dba62a2a9f",
+      "name": "D3 Loop follow-ups",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        940,
+        1480
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "id": "4b4699bc-33dc-5994-9b27-dea26cfd3e31",
+      "name": "D4 Gmail reply",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1180,
+        1480
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "reply",
+        "messageId": "={{ $json.message_id }}",
+        "emailType": "text",
+        "message": "={{ $json.fu_body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "Gmail account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "e2e123c7-d489-5ce8-9faf-b71abad09696",
+      "name": "D5 Mark follow-up sent",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1420,
+        1440
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $('D3 Loop follow-ups').item.json.row_number }}",
+            "status": "followup_sent",
+            "followup_sent_at": "={{ $now.toISO() }}"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "followup_sent_at",
+              "displayName": "followup_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "id": "14e6d947-6a51-597e-9941-2d306e131147",
+      "name": "D5b Mark reply failed",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1420,
+        1600
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $('D3 Loop follow-ups').item.json.row_number }}",
+            "status": "needs_fix"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "id": "f9d96e28-784f-59ae-b6fa-9660734b6805",
+      "name": "D6 Random gap",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1660,
+        1520
+      ],
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ Math.floor(Math.random() * 180) + 150 }}",
+        "unit": "seconds"
+      }
+    },
+    {
+      "id": "6f834096-abea-54f8-8a9e-8cae35df7a21",
+      "name": "D2d Mark needs_fix",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        940,
+        1680
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $json.row_number }}",
+            "status": "needs_fix"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "id": "b5ab55b8-aa47-5aeb-8090-f4ab84b849f0",
+      "name": "Note FLOW E",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -200,
+        1800
+      ],
+      "parameters": {
+        "content": "## FLOW E: REPLY AND BOUNCE DETECTOR\nChecks your inbox every 10 minutes. A reply in a thread you started (or from a lead's address) sets `replied`, which stops follow-ups. A delivery-failure notice sets `bounced`. Out-of-office auto-replies are ignored.",
+        "width": 520,
+        "height": 150,
+        "color": 4
+      }
+    },
+    {
+      "id": "7ef0bd94-6a2d-5118-81cc-5f33cd18cd14",
+      "name": "E1 New inbox mail",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        1980
+      ],
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyX",
+              "value": 10,
+              "unit": "minutes"
+            }
+          ]
+        },
+        "simple": true,
+        "filters": {
+          "labelIds": [
+            "INBOX"
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "id": "438be72a-813a-55a0-b389-a129d81754af",
+      "name": "E2 Read mail details",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        1980
+      ],
+      "parameters": {
+        "jsCode": "\nreturn $input.all().map((it) => {\n  const j = it.json;\n  const raw = j.From || (j.from && j.from.value && j.from.value[0] && j.from.value[0].address) || '';\n  const m = String(raw).match(/[\\w.+'-]+@[\\w-]+\\.[\\w.-]+/);\n  const from = m ? m[0].toLowerCase() : '';\n  const subject = String(j.Subject || j.subject || '');\n  return { json: {\n    from, threadId: j.threadId || '', snippet: String(j.snippet || '').toLowerCase(), subject,\n    isBounce: /mailer-daemon|postmaster/i.test(from) || /delivery status notification|undeliverable|delivery failure|returned mail/i.test(subject),\n    isAuto: /automatic reply|auto-reply|autoreply|out of office/i.test(subject)\n  } };\n}).filter((x) => x.json.from);\n"
+      }
+    },
+    {
+      "id": "accf46d8-bcd4-50e4-bf09-840a72d5823f",
+      "name": "E3 Get all leads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        480,
+        1980
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "id": "1e597dbc-2f7b-5a09-9ae5-ecb12a6df15e",
+      "name": "E4 Match replies and bounces",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        1980
+      ],
+      "parameters": {
+        "jsCode": "\nconst ACTIVE = ['sent', 'followup_pending_approval', 'fu_approved', 'followup_sent'];\nconst mails = $('E2 Read mail details').all().map((i) => i.json);\nconst rows = $input.all().map((i) => i.json).filter((r) => ACTIVE.includes(String(r.status || '').trim()));\nconst found = new Map();\nfor (const m of mails) {\n  if (m.isAuto) continue;\n  for (const r of rows) {\n    const email = String(r.email || '').trim().toLowerCase();\n    if (!email) continue;\n    if (m.isBounce) {\n      if (m.snippet.includes(email)) found.set(r.row_number, 'bounced');\n    } else if ((r.thread_id && m.threadId === String(r.thread_id).trim()) || m.from === email) {\n      if (found.get(r.row_number) !== 'bounced') found.set(r.row_number, 'replied');\n    }\n  }\n}\nreturn [...found.entries()].map(([row_number, status]) => ({ json: { row_number, status } }));\n"
+      }
+    },
+    {
+      "id": "72e79bfd-18db-573e-9dbb-cbb540cd94ec",
+      "name": "E5 Update status",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        960,
+        1980
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $json.row_number }}",
+            "status": "={{ $json.status }}"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "A1 Schedule (weekdays 9:00)": {
+      "main": [
+        [
+          {
+            "node": "A2 Get new leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A1 Manual run": {
+      "main": [
+        [
+          {
+            "node": "A2 Get new leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A2 Get new leads": {
+      "main": [
+        [
+          {
+            "node": "A3 Build prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A3 Build prompt": {
+      "main": [
+        [
+          {
+            "node": "A3b Valid email?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A3b Valid email?": {
+      "main": [
+        [
+          {
+            "node": "A4 Claude: write email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "A3c Mark needs_fix",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A4 Claude: write email": {
+      "main": [
+        [
+          {
+            "node": "A5 Parse and validate draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A5 Parse and validate draft": {
+      "main": [
+        [
+          {
+            "node": "A6 Save drafts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A6 Save drafts": {
+      "main": [
+        [
+          {
+            "node": "A7 Notify me",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B1 Schedule (weekdays 10:30)": {
+      "main": [
+        [
+          {
+            "node": "B2 Get approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B1 Manual run": {
+      "main": [
+        [
+          {
+            "node": "B2 Get approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B2 Get approved": {
+      "main": [
+        [
+          {
+            "node": "B2b Guard (CAP per day)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B2b Guard (CAP per day)": {
+      "main": [
+        [
+          {
+            "node": "B2c OK to send?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B2c OK to send?": {
+      "main": [
+        [
+          {
+            "node": "B3 Loop send",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "B2d Mark needs_fix",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B3 Loop send": {
+      "main": [
+        [],
+        [
+          {
+            "node": "B4 Gmail send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B4 Gmail send": {
+      "main": [
+        [
+          {
+            "node": "B5 Mark sent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "B5b Mark send failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B5 Mark sent": {
+      "main": [
+        [
+          {
+            "node": "B6 Random gap",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B5b Mark send failed": {
+      "main": [
+        [
+          {
+            "node": "B6 Random gap",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "B6 Random gap": {
+      "main": [
+        [
+          {
+            "node": "B3 Loop send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "C1 Schedule (weekdays 9:15)": {
+      "main": [
+        [
+          {
+            "node": "C2 Get sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "C1 Manual run": {
+      "main": [
+        [
+          {
+            "node": "C2 Get sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "C2 Get sent": {
+      "main": [
+        [
+          {
+            "node": "C3 Build follow-up prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "C3 Build follow-up prompt": {
+      "main": [
+        [
+          {
+            "node": "C4 Claude: write follow-up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "C4 Claude: write follow-up": {
+      "main": [
+        [
+          {
+            "node": "C5 Parse and validate follow-up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "C5 Parse and validate follow-up": {
+      "main": [
+        [
+          {
+            "node": "C6 Save follow-ups",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "C6 Save follow-ups": {
+      "main": [
+        [
+          {
+            "node": "C7 Notify me",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "D1 Schedule (weekdays 13:00)": {
+      "main": [
+        [
+          {
+            "node": "D2 Get approved follow-ups",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "D1 Manual run": {
+      "main": [
+        [
+          {
+            "node": "D2 Get approved follow-ups",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "D2 Get approved follow-ups": {
+      "main": [
+        [
+          {
+            "node": "D2b Guard (CAP per day)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "D2b Guard (CAP per day)": {
+      "main": [
+        [
+          {
+            "node": "D2c OK to send?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "D2c OK to send?": {
+      "main": [
+        [
+          {
+            "node": "D3 Loop follow-ups",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "D2d Mark needs_fix",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "D3 Loop follow-ups": {
+      "main": [
+        [],
+        [
+          {
+            "node": "D4 Gmail reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "D4 Gmail reply": {
+      "main": [
+        [
+          {
+            "node": "D5 Mark follow-up sent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "D5b Mark reply failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "D5 Mark follow-up sent": {
+      "main": [
+        [
+          {
+            "node": "D6 Random gap",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "D5b Mark reply failed": {
+      "main": [
+        [
+          {
+            "node": "D6 Random gap",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "D6 Random gap": {
+      "main": [
+        [
+          {
+            "node": "D3 Loop follow-ups",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "E1 New inbox mail": {
+      "main": [
+        [
+          {
+            "node": "E2 Read mail details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "E2 Read mail details": {
+      "main": [
+        [
+          {
+            "node": "E3 Get all leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "E3 Get all leads": {
+      "main": [
+        [
+          {
+            "node": "E4 Match replies and bounces",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "E4 Match replies and bounces": {
+      "main": [
+        [
+          {
+            "node": "E5 Update status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Kolkata"
+  }
+}
